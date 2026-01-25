@@ -5,7 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dirigentenschule BFECG</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Supabase für Files -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Firebase für Echtzeit-Daten (Termine) -->
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         
@@ -25,7 +30,6 @@
         }
 
         .transition-custom { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-
         .file-row:hover { background-color: #f1f5f9; }
 
         @keyframes fadeIn {
@@ -85,7 +89,7 @@
                         <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
                         <span class="whitespace-nowrap overflow-hidden">Allgemein</span>
                     </button>
-                    <button onclick="updateContent('termine', this)" class="module-btn w-full text-left px-3 py-2.5 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-custom flex items-center gap-3">
+                    <button id="btn-termine" onclick="updateContent('termine', this)" class="module-btn w-full text-left px-3 py-2.5 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-custom flex items-center gap-3">
                         <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2V7a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                         <span class="whitespace-nowrap overflow-hidden">Termine</span>
                     </button>
@@ -202,33 +206,48 @@
 </div>
 
 <script>
+    // --- KONFIGURATION & INITIALISIERUNG ---
     const SUPABASE_URL = 'https://pzmexvmruiutjarbtqri.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_SJzgqILV8syyNTJyjUgEEg_7ALx3poQ';
     const BUCKET_NAME = 'unterricht'; 
     
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+        apiKey: "",
+        authDomain: "conductor-school.firebaseapp.com",
+        projectId: "conductor-school",
+        storageBucket: "conductor-school.appspot.com",
+        messagingSenderId: "123456789",
+        appId: "1:123456789:web:abcdef"
+    };
+    
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'dirigentenschule-bfecg';
+    
     let supabaseClient = null;
+    let db = null;
+    let auth = null;
+    let currentUser = null;
+
     try {
         if (typeof supabase !== 'undefined') {
             supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         }
-    } catch(e) { console.error("Supabase init error", e); }
+        firebase.initializeApp(firebaseConfig);
+        db = firebase.firestore();
+        auth = firebase.auth();
+    } catch(e) { console.error("Initialization error", e); }
 
-    let currentRole = 'student';
+    // --- ZUSTAND ---
+    let currentRole = localStorage.getItem('ds_role') || 'student';
     let pendingRole = 'student';
     let currentModule = 'home';
     let isUploading = false;
     
-    // Datenstrukturen
     let documents = { 
         dirigat: [], orchesterleitung: [], vokal: [], chorleitung: [],
         mlg: [], theorie: [], geschichte: [], gehoerbildung: [] 
     };
     
-    let appointments = JSON.parse(localStorage.getItem('ds_appointments')) || [
-        { id: '1', title: '1. Arbeitsphase', start: '2026-03-04', end: '2026-03-08', desc: 'Erster Blockunterricht vor Ort.', status: 'upcoming' },
-        { id: '2', title: '2. Arbeitsphase', start: '2026-06-10', end: '2026-06-14', desc: 'Fokus auf Orchesterleitung.', status: 'upcoming' }
-    ];
-
+    let appointments = []; 
     let visibilityMap = JSON.parse(localStorage.getItem('ds_visibility')) || {};
     const PASSWORDS = { admin: 'admin', dozent: 'lehrer' };
 
@@ -254,14 +273,14 @@
                     </div>
                     <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                         <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                            <div class="text-emerald-600 mb-2 font-bold text-[10px] uppercase tracking-widest">Nächste Arbeitsphase</div>
+                            <div class="text-emerald-600 mb-2 font-bold text-[10px] uppercase tracking-widest">Nächster Termin</div>
                             <div class="text-2xl font-bold text-slate-800">${getNextAppointment()}</div>
-                            <div class="text-sm text-slate-400 font-medium">März 2026</div>
+                            <div class="text-sm text-slate-400 font-medium">Aktuelle Planung</div>
                         </div>
                         <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
                             <div class="text-blue-600 mb-2 font-bold text-[10px] uppercase tracking-widest">Fachbereiche</div>
-                            <div class="text-2xl font-bold text-slate-800">8 Module</div>
-                            <div class="text-sm text-slate-400 font-medium">Cloud Speicher</div>
+                            <div class="text-2xl font-bold text-slate-800">${subjectConfig.length} Module</div>
+                            <div class="text-sm text-slate-400 font-medium">Digitales Archiv</div>
                         </div>
                     </div>
                 </div>`
@@ -272,7 +291,6 @@
         }
     };
 
-    // Subject data registration
     subjectConfig.forEach(s => {
         subjects[s.key] = {
             title: s.label,
@@ -281,13 +299,39 @@
         };
     });
 
-    // --- RENDER FUNCTIONS ---
+    // --- AUTH & SYNC ---
+    async function initAuthAndSync() {
+        try {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await auth.signInWithCustomToken(__initial_auth_token);
+            } else {
+                await auth.signInAnonymously();
+            }
 
+            auth.onAuthStateChanged((user) => {
+                currentUser = user;
+                if (user) setupAppointmentsSync();
+            });
+        } catch (e) { console.error("Auth failed", e); }
+    }
+
+    function setupAppointmentsSync() {
+        if (!currentUser) return;
+        const appointmentsCol = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('appointments');
+        appointmentsCol.onSnapshot((snapshot) => {
+            appointments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            if (currentModule === 'home' || currentModule === 'termine') refreshView();
+        }, (err) => console.error("Firestore Sync Error:", err));
+    }
+
+    // --- RENDER FUNCTIONS ---
     function getNextAppointment() {
-        const upcoming = appointments.filter(a => new Date(a.start) >= new Date()).sort((a,b) => new Date(a.start) - new Date(b.start));
+        const upcoming = appointments
+            .filter(a => new Date(a.start) >= new Date())
+            .sort((a,b) => new Date(a.start) - new Date(b.start));
         if (upcoming.length === 0) return "Keine Termine";
         const d = new Date(upcoming[0].start);
-        return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) + ". - " + new Date(upcoming[0].end).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+        return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) + (upcoming[0].end ? (" - " + new Date(upcoming[0].end).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })) : "");
     }
 
     function renderAppointmentView() {
@@ -297,7 +341,7 @@
                 <div class="flex flex-col md:flex-row justify-between gap-4 items-start md:items-center">
                     <div>
                         <h2 class="text-3xl font-bold text-slate-900 tracking-tight">Terminkalender</h2>
-                        <p class="text-slate-500 text-sm mt-1">Übersicht der kommenden Kurswochen und Arbeitsphasen.</p>
+                        <p class="text-slate-500 text-sm mt-1">Synchronisierte Übersicht für alle Kursteilnehmer.</p>
                     </div>
                     ${isStaff ? `
                         <button onclick="openEventModal()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-emerald-100 active:scale-95">
@@ -310,9 +354,8 @@
                 <div class="grid gap-4">
                     ${appointments.sort((a,b) => new Date(a.start) - new Date(b.start)).map(event => {
                         const start = new Date(event.start);
-                        const end = new Date(event.end);
+                        const end = event.end ? new Date(event.end) : null;
                         const isFinished = event.status === 'finished';
-                        
                         return `
                         <div class="bg-white rounded-3xl border border-slate-200 p-6 flex flex-col md:flex-row md:items-center gap-6 shadow-sm hover:shadow-md transition-shadow ${isFinished ? 'opacity-60' : ''}">
                             <div class="flex items-center gap-4 md:w-48 shrink-0">
@@ -320,9 +363,8 @@
                                     <span class="text-[10px] font-bold text-slate-400 uppercase leading-none">${start.toLocaleDateString('de-DE', { month: 'short' })}</span>
                                     <span class="text-xl font-bold text-slate-800">${start.getDate()}</span>
                                 </div>
-                                <div class="text-xs font-bold text-slate-400">BIS<br><span class="text-slate-600">${end.toLocaleDateString('de-DE')}</span></div>
+                                ${end ? `<div class="text-xs font-bold text-slate-400">BIS<br><span class="text-slate-600">${end.toLocaleDateString('de-DE')}</span></div>` : ''}
                             </div>
-                            
                             <div class="flex-1">
                                 <div class="flex items-center gap-2 mb-1">
                                     <h4 class="font-bold text-lg text-slate-800">${event.title}</h4>
@@ -330,32 +372,26 @@
                                 </div>
                                 <p class="text-sm text-slate-500 leading-relaxed">${event.desc || 'Keine Beschreibung vorhanden.'}</p>
                             </div>
-
                             ${isStaff ? `
                                 <div class="flex items-center gap-2 justify-end">
-                                    <button onclick="openEventModal('${event.id}')" class="p-3 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all" title="Bearbeiten">
+                                    <button onclick="openEventModal('${event.id}')" class="p-3 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all">
                                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
                                     </button>
-                                    <button onclick="deleteEvent('${event.id}')" class="p-3 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all" title="Löschen">
+                                    <button onclick="deleteEvent('${event.id}')" class="p-3 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all">
                                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                                     </button>
                                 </div>
                             ` : ''}
-                        </div>
-                        `;
+                        </div>`;
                     }).join('')}
-                    ${appointments.length === 0 ? '<div class="p-20 text-center text-slate-400 italic bg-white rounded-3xl border border-dashed border-slate-200">Keine Termine geplant.</div>' : ''}
+                    ${appointments.length === 0 ? '<div class="p-20 text-center text-slate-400 italic bg-white rounded-3xl border border-dashed border-slate-200">Keine Termine gefunden.</div>' : ''}
                 </div>
             </div>
         `;
     }
 
     function getStatusBadge(status) {
-        const styles = {
-            upcoming: 'bg-blue-50 text-blue-600 border-blue-100',
-            current: 'bg-emerald-50 text-emerald-600 border-emerald-100',
-            finished: 'bg-slate-100 text-slate-500 border-slate-200'
-        };
+        const styles = { upcoming: 'bg-blue-50 text-blue-600 border-blue-100', current: 'bg-emerald-50 text-emerald-600 border-emerald-100', finished: 'bg-slate-100 text-slate-500 border-slate-200' };
         const labels = { upcoming: 'Bevorstehend', current: 'Aktiv', finished: 'Beendet' };
         return `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${styles[status]}">${labels[status]}</span>`;
     }
@@ -364,7 +400,6 @@
         const isStaff = currentRole === 'dozent' || currentRole === 'admin';
         const fileArray = documents[key] || [];
         const visibleFiles = isStaff ? fileArray : fileArray.filter(f => visibilityMap[f.id] !== false);
-
         return `
             <div class="space-y-6 animate-fade-in">
                 <div class="flex flex-col md:flex-row justify-between gap-4 items-start md:items-center">
@@ -382,7 +417,6 @@
                         </div>
                     ` : ''}
                 </div>
-                
                 <div class="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
                     <div id="file-list-container" class="divide-y divide-slate-100">
                         ${visibleFiles.length === 0 ? `
@@ -397,7 +431,7 @@
                             return `
                             <div class="file-row p-5 flex items-center justify-between ${isStaff && isHidden ? 'status-hidden' : ''} transition-colors group">
                                 <div class="flex items-center gap-5 flex-1 mr-4">
-                                    <div class="w-11 h-11 bg-slate-50 text-slate-400 group-hover:bg-emerald-50 group-hover:text-emerald-500 rounded-xl flex items-center justify-center font-bold text-[10px] uppercase border border-slate-100 transition-colors">
+                                    <div class="w-11 h-11 bg-slate-50 text-slate-400 group-hover:bg-emerald-50 group-hover:text-emerald-500 rounded-xl flex items-center justify-center font-bold text-[10px] uppercase border border-slate-100">
                                         ${doc.name.split('.').pop()}
                                     </div>
                                     <button onclick="downloadFromSupabase('${key}', '${doc.name}')" class="text-left">
@@ -425,8 +459,7 @@
             </div>`;
     }
 
-    // --- APPOINTMENT LOGIC ---
-
+    // --- APPOINTMENT LOGIC (CLOUDBASED) ---
     function openEventModal(eventId = null) {
         const modal = document.getElementById('event-modal');
         const titleInput = document.getElementById('event-title');
@@ -441,59 +474,43 @@
             idInput.value = ev.id;
             titleInput.value = ev.title;
             startInput.value = ev.start;
-            endInput.value = ev.end;
+            endInput.value = ev.end || '';
             descInput.value = ev.desc || '';
             statusSelect.value = ev.status;
             document.getElementById('event-modal-title').innerText = "Termin bearbeiten";
         } else {
-            idInput.value = '';
-            titleInput.value = '';
-            startInput.value = '';
-            endInput.value = '';
-            descInput.value = '';
-            statusSelect.value = 'upcoming';
+            idInput.value = ''; titleInput.value = ''; startInput.value = ''; endInput.value = ''; descInput.value = ''; statusSelect.value = 'upcoming';
             document.getElementById('event-modal-title').innerText = "Neuer Termin";
         }
         modal.classList.replace('hidden', 'flex');
     }
 
-    function closeEventModal() {
-        document.getElementById('event-modal').classList.replace('flex', 'hidden');
-    }
+    function closeEventModal() { document.getElementById('event-modal').classList.replace('flex', 'hidden'); }
 
-    function saveEvent() {
+    async function saveEvent() {
+        if (!currentUser) return;
         const id = document.getElementById('event-id').value;
         const newEvent = {
-            id: id || Date.now().toString(),
             title: document.getElementById('event-title').value,
             start: document.getElementById('event-start').value,
             end: document.getElementById('event-end').value,
             desc: document.getElementById('event-desc').value,
-            status: document.getElementById('event-status').value
+            status: document.getElementById('event-status').value,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
-
-        if (!newEvent.title || !newEvent.start) {
-            showModal("Fehler", "Bitte mindestens Titel und Startdatum angeben.");
-            return;
-        }
-
-        if (id) {
-            const index = appointments.findIndex(a => a.id === id);
-            appointments[index] = newEvent;
-        } else {
-            appointments.push(newEvent);
-        }
-
-        localStorage.setItem('ds_appointments', JSON.stringify(appointments));
-        closeEventModal();
-        refreshView();
+        if (!newEvent.title || !newEvent.start) { showModal("Fehler", "Bitte mindestens Titel und Startdatum angeben."); return; }
+        try {
+            const appointmentsCol = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('appointments');
+            if (id) await appointmentsCol.doc(id).update(newEvent);
+            else await appointmentsCol.add(newEvent);
+            closeEventModal();
+        } catch (e) { showModal("Fehler", "Speichern fehlgeschlagen."); }
     }
 
-    function deleteEvent(id) {
+    async function deleteEvent(id) {
         if (!confirm("Soll dieser Termin wirklich gelöscht werden?")) return;
-        appointments = appointments.filter(a => a.id !== id);
-        localStorage.setItem('ds_appointments', JSON.stringify(appointments));
-        refreshView();
+        try { await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('appointments').doc(id).delete();
+        } catch (e) { showModal("Fehler", "Löschen fehlgeschlagen."); }
     }
 
     // --- INTERFACE ACTIONS ---
@@ -505,14 +522,12 @@
                 <span class="whitespace-nowrap overflow-hidden">${s.label}</span>
             </button>
         `).join('');
+        document.getElementById('role-selector').value = currentRole;
     }
 
     function toggleSidebar() {
-        if (window.innerWidth < 1024) {
-            document.body.classList.toggle('mobile-menu-open');
-        } else {
-            document.body.classList.toggle('sidebar-collapsed');
-        }
+        if (window.innerWidth < 1024) document.body.classList.toggle('mobile-menu-open');
+        else document.body.classList.toggle('sidebar-collapsed');
     }
 
     function toggleVisibility(fileId) {
@@ -538,7 +553,9 @@
         const pw = document.getElementById('login-password').value;
         if (pw === PASSWORDS[pendingRole]) {
             changeRole(pendingRole);
+            // KORREKTUR: Fenster schließen und Input leeren
             document.getElementById('login-modal').classList.replace('flex', 'hidden');
+            document.getElementById('login-password').value = '';
         } else {
             showModal("Fehler", "Falsches Passwort.");
             cancelLogin();
@@ -547,6 +564,7 @@
 
     function changeRole(role) {
         currentRole = role;
+        localStorage.setItem('ds_role', role);
         refreshView();
     }
 
@@ -557,8 +575,7 @@
             const { data, error } = await supabaseClient.storage.from(BUCKET_NAME).list(subjectKey);
             if (error) throw error;
             documents[subjectKey] = data.map(file => ({
-                id: file.id,
-                name: file.name,
+                id: file.id, name: file.name,
                 size: (file.metadata.size / 1024 / 1024).toFixed(2) + " MB",
                 date: new Date(file.created_at).toLocaleDateString('de-DE')
             }));
@@ -578,11 +595,7 @@
             if (error) throw error;
             await fetchFiles(subjectKey);
         } catch (error) { showModal("Upload-Fehler", error.message); } 
-        finally {
-            isUploading = false;
-            refreshView();
-            fileInput.value = ''; 
-        }
+        finally { isUploading = false; refreshView(); fileInput.value = ''; }
     }
 
     async function downloadFromSupabase(subjectKey, fileName) {
@@ -610,6 +623,8 @@
     async function updateContent(key, element) {
         currentModule = key;
         document.querySelectorAll('.module-btn').forEach(btn => btn.classList.remove('active-module'));
+        if (!element && key === 'home') element = document.getElementById('btn-home');
+        if (!element && key === 'termine') element = document.getElementById('btn-termine');
         if (element) element.classList.add('active-module');
         document.getElementById('breadcrumb').innerText = subjects[key].breadcrumb;
         if (window.innerWidth < 1024) document.body.classList.remove('mobile-menu-open');
@@ -626,6 +641,7 @@
 
     window.onload = () => {
         initNav();
+        initAuthAndSync();
         updateContent('home', document.getElementById('btn-home'));
     };
 </script>
