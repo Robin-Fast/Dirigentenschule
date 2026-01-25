@@ -172,8 +172,8 @@
             </div>
         </div>
         <div class="flex gap-3 mt-8">
-            <button onclick="closeEventModal()" class="flex-1 py-3 text-slate-500 rounded-xl font-bold hover:bg-slate-100 transition-colors">Abbruch</button>
-            <button onclick="saveEvent()" class="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition-all">Speichern</button>
+            <button onclick="window.closeEventModal()" class="flex-1 py-3 text-slate-500 rounded-xl font-bold hover:bg-slate-100 transition-colors">Abbruch</button>
+            <button onclick="window.saveEvent()" class="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition-all">Speichern</button>
         </div>
     </div>
 </div>
@@ -188,8 +188,8 @@
         <p class="text-slate-500 text-sm mb-6 text-center">Passwort erforderlich.</p>
         <input type="password" id="login-password" placeholder="Passwort" class="w-full px-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-emerald-500/10 text-center mb-6 text-lg font-bold tracking-widest">
         <div class="flex gap-3">
-            <button onclick="cancelLogin()" class="flex-1 py-3 text-slate-500 rounded-xl font-bold hover:bg-slate-100">Abbruch</button>
-            <button onclick="validateLogin()" class="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 shadow-lg shadow-emerald-200">Anmelden</button>
+            <button onclick="window.cancelLogin()" class="flex-1 py-3 text-slate-500 rounded-xl font-bold hover:bg-slate-100">Abbruch</button>
+            <button onclick="window.validateLogin()" class="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 shadow-lg shadow-emerald-200">Anmelden</button>
         </div>
     </div>
 </div>
@@ -199,7 +199,7 @@
     <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
         <h3 id="modal-title" class="text-lg font-bold mb-2"></h3>
         <p id="modal-text" class="text-slate-600 text-sm mb-6"></p>
-        <button onclick="closeModal()" class="w-full py-2 bg-slate-900 text-white rounded-lg font-bold">Verstanden</button>
+        <button onclick="window.closeModal()" class="w-full py-2 bg-slate-900 text-white rounded-lg font-bold">Verstanden</button>
     </div>
 </div>
 
@@ -223,7 +223,6 @@
         appId: "1:123456789:web:abcdef"
     };
     
-    // WICHTIG: Die appId muss für die Synchronisierung über alle Geräte gleich sein!
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'dirigentenschule-bfecg-v1';
     
     let supabaseClient = null;
@@ -283,7 +282,7 @@
                             <p class="text-slate-500 text-sm mt-1">Echtzeit-Synchronisierung aktiv.</p>
                         </div>
                         ${isStaff ? `
-                            <button id="add-event-btn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-emerald-100 active:scale-95">
+                            <button onclick="window.openEventModal()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-emerald-100 active:scale-95">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                                 Termin hinzufügen
                             </button>
@@ -292,6 +291,7 @@
                     <div class="grid gap-4">
                         ${appointments.sort((a,b) => new Date(a.start) - new Date(b.start)).map(event => {
                             const start = new Date(event.start);
+                            const end = event.end ? new Date(event.end) : null;
                             const isFinished = event.status === 'finished';
                             return `
                             <div class="bg-white rounded-3xl border border-slate-200 p-6 flex flex-col md:flex-row md:items-center gap-6 shadow-sm hover:shadow-md transition-shadow ${isFinished ? 'opacity-60' : ''}">
@@ -300,6 +300,7 @@
                                         <span class="text-[10px] font-bold text-slate-400 uppercase leading-none">${start.toLocaleDateString('de-DE', { month: 'short' })}</span>
                                         <span class="text-xl font-bold text-slate-800">${start.getDate()}</span>
                                     </div>
+                                    ${end ? `<div class="text-xs font-bold text-slate-400">BIS<br><span class="text-slate-600">${end.toLocaleDateString('de-DE')}</span></div>` : ''}
                                 </div>
                                 <div class="flex-1">
                                     <div class="flex items-center gap-2 mb-1">
@@ -316,11 +317,9 @@
                                 ` : ''}
                             </div>`;
                         }).join('')}
+                        ${appointments.length === 0 ? '<div class="p-20 text-center text-slate-400 italic bg-white rounded-3xl border border-dashed border-slate-200">Keine Termine gefunden.</div>' : ''}
                     </div>
                 </div>`;
-            if(isStaff && document.getElementById('add-event-btn')) {
-                document.getElementById('add-event-btn').onclick = () => window.openEventModal();
-            }
         } else {
             dynamic.innerHTML = renderFileView(currentModule, subjectConfig.find(s => s.key === currentModule)?.label);
         }
@@ -382,7 +381,10 @@
                         appointments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                         refreshView();
                         updateSyncStatus('Live-Sync Aktiv', 'bg-emerald-500');
-                    }, () => updateSyncStatus('Sync Fehler', 'bg-rose-500'));
+                    }, (err) => {
+                        console.error("Firestore Sync error", err);
+                        updateSyncStatus('Sync Fehler', 'bg-rose-500');
+                    });
                 }
             });
         } catch (e) { updateSyncStatus('Datenbankfehler', 'bg-rose-500'); }
@@ -395,7 +397,10 @@
         if (!element && key === 'home') element = document.getElementById('btn-home');
         if (!element && key === 'termine') element = document.getElementById('btn-termine');
         if (element) element.classList.add('active-module');
-        document.getElementById('breadcrumb').innerText = key.toUpperCase();
+        
+        const path = key === 'home' ? 'ALLGEMEIN / ÜBERSICHT' : (key === 'termine' ? 'ALLGEMEIN / TERMINE' : 'UNTERRICHT / ' + key.toUpperCase());
+        document.getElementById('breadcrumb').innerText = path;
+        
         if (window.innerWidth < 1024) document.body.classList.remove('mobile-menu-open');
         if (!['home', 'termine'].includes(key)) await fetchFiles(key);
         refreshView();
@@ -409,6 +414,7 @@
     window.handleRoleSelection = (role) => {
         if (role === 'student') { changeRole(role); return; }
         pendingRole = role;
+        document.getElementById('login-password').value = '';
         document.getElementById('login-modal').classList.replace('hidden', 'flex');
     };
 
@@ -441,9 +447,18 @@
             idInput.value = ev.id;
             document.getElementById('event-title').value = ev.title;
             document.getElementById('event-start').value = ev.start;
+            document.getElementById('event-end').value = ev.end || '';
+            document.getElementById('event-desc').value = ev.desc || '';
             document.getElementById('event-status').value = ev.status;
+            document.getElementById('event-modal-title').innerText = "Termin bearbeiten";
         } else {
-            idInput.value = ''; document.getElementById('event-title').value = ''; document.getElementById('event-start').value = '';
+            idInput.value = ''; 
+            document.getElementById('event-title').value = ''; 
+            document.getElementById('event-start').value = '';
+            document.getElementById('event-end').value = '';
+            document.getElementById('event-desc').value = '';
+            document.getElementById('event-status').value = 'upcoming';
+            document.getElementById('event-modal-title').innerText = "Neuer Termin";
         }
         modal.classList.replace('hidden', 'flex');
     };
@@ -451,56 +466,107 @@
     window.closeEventModal = () => document.getElementById('event-modal').classList.replace('flex', 'hidden');
 
     window.saveEvent = async () => {
+        if (!currentUser || !db) {
+            alert("Nicht verbunden. Bitte Seite neu laden.");
+            return;
+        }
+        
         const id = document.getElementById('event-id').value;
         const data = {
             title: document.getElementById('event-title').value,
             start: document.getElementById('event-start').value,
+            end: document.getElementById('event-end').value,
+            desc: document.getElementById('event-desc').value,
             status: document.getElementById('event-status').value,
             updatedAt: serverTimestamp()
         };
-        const col = collection(db, 'artifacts', appId, 'public', 'data', 'appointments');
-        if (id) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'appointments', id), data);
-        else await addDoc(col, data);
-        window.closeEventModal();
+        
+        if (!data.title || !data.start) { 
+            alert("Bitte Titel und Startdatum ausfüllen.");
+            return; 
+        }
+        
+        try {
+            const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'appointments');
+            if (id) {
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'appointments', id), data);
+            } else {
+                await addDoc(colRef, data);
+            }
+            window.closeEventModal();
+        } catch (e) { 
+            console.error("Save failed", e);
+            alert("Speichern fehlgeschlagen. Bitte erneut versuchen."); 
+        }
     };
 
     window.deleteEvent = async (id) => {
-        if (confirm("Löschen?")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'appointments', id));
+        if (confirm("Termin wirklich löschen?")) {
+            try {
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'appointments', id));
+            } catch(e) { alert("Löschen fehlgeschlagen."); }
+        }
+    };
+
+    window.toggleVisibility = (fileId) => {
+        visibilityMap[fileId] = visibilityMap[fileId] === false;
+        localStorage.setItem('ds_visibility', JSON.stringify(visibilityMap));
+        refreshView();
     };
 
     async function fetchFiles(key) {
         if (!supabaseClient) return;
-        const { data } = await supabaseClient.storage.from(BUCKET_NAME).list(key);
-        documents[key] = data?.map(f => ({ id: f.id, name: f.name })) || [];
-        refreshView();
+        try {
+            const { data } = await supabaseClient.storage.from(BUCKET_NAME).list(key);
+            documents[key] = data?.map(f => ({ id: f.id, name: f.name })) || [];
+            refreshView();
+        } catch(e) {}
     }
 
     window.uploadToSupabase = async (key) => {
-        const file = document.getElementById('supa-upload').files[0];
+        const fileInput = document.getElementById('supa-upload');
+        const file = fileInput.files[0];
         if (!file) return;
         isUploading = true; refreshView();
-        await supabaseClient.storage.from(BUCKET_NAME).upload(`${key}/${file.name}`, file, { upsert: true });
-        isUploading = false; fetchFiles(key);
+        try {
+            await supabaseClient.storage.from(BUCKET_NAME).upload(`${key}/${file.name}`, file, { upsert: true });
+            isUploading = false; fetchFiles(key);
+        } catch(e) { isUploading = false; alert("Upload fehlgeschlagen."); }
     };
 
     window.downloadFromSupabase = async (key, name) => {
-        const { data } = await supabaseClient.storage.from(BUCKET_NAME).createSignedUrl(`${key}/${name}`, 3600);
-        window.open(data.signedUrl, '_blank');
+        try {
+            const { data } = await supabaseClient.storage.from(BUCKET_NAME).createSignedUrl(`${key}/${name}`, 3600);
+            window.open(data.signedUrl, '_blank');
+        } catch(e) {}
     };
 
     window.deleteFromSupabase = async (key, name) => {
-        if (confirm("Löschen?")) {
+        if (confirm(`"${name}" wirklich löschen?`)) {
             await supabaseClient.storage.from(BUCKET_NAME).remove([`${key}/${name}`]);
             fetchFiles(key);
         }
     };
 
+    window.closeModal = () => document.getElementById('modal').classList.replace('flex', 'hidden');
+
     // --- INIT ---
     window.onload = () => {
         const navList = document.getElementById('nav-subjects-list');
-        navList.innerHTML = subjectConfig.map(s => `<button onclick="window.updateContent('${s.key}', this)" class="module-btn w-full text-left px-3 py-2.5 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-custom flex items-center gap-3"><span class="w-1.5 h-1.5 rounded-full ${s.color} shrink-0"></span>${s.label}</button>`).join('');
+        navList.innerHTML = subjectConfig.map(s => `
+            <button onclick="window.updateContent('${s.key}', this)" class="module-btn w-full text-left px-3 py-2.5 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-custom flex items-center gap-3">
+                <span class="w-1.5 h-1.5 rounded-full ${s.color} shrink-0"></span>
+                <span class="whitespace-nowrap overflow-hidden">${s.label}</span>
+            </button>
+        `).join('');
+        
         document.getElementById('role-selector').value = currentRole;
-        try { supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY); } catch(e) {}
+        try { 
+            if (typeof supabase !== 'undefined') {
+                supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY); 
+            }
+        } catch(e) {}
+        
         initAuthAndSync();
         window.updateContent('home');
     };
